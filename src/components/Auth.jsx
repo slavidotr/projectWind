@@ -1,21 +1,33 @@
 import { useState } from 'react'
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth'
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  updateProfile,
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from 'firebase/auth'
 import { auth, googleProvider } from '../firebase'
 import { useLang, LANGS } from '../i18n'
 
 export default function Auth() {
   const { t, lang, setLang } = useLang()
-  const [mode,     setMode]     = useState('login')
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [name,     setName]     = useState('')
-  const [error,    setError]    = useState('')
-  const [busy,     setBusy]     = useState(false)
+  const [mode,       setMode]       = useState('login')
+  const [email,      setEmail]      = useState('')
+  const [password,   setPassword]   = useState('')
+  const [name,       setName]       = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
+  const [error,      setError]      = useState('')
+  const [resetSent,  setResetSent]  = useState(false)
+  const [busy,       setBusy]       = useState(false)
 
   async function submit(e) {
-    e.preventDefault(); setError(''); setBusy(true)
+    e.preventDefault(); setError(''); setResetSent(false); setBusy(true)
     try {
       if (mode === 'login') {
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence)
         await signInWithEmailAndPassword(auth, email, password)
       } else {
         const cred = await createUserWithEmailAndPassword(auth, email, password)
@@ -26,9 +38,22 @@ export default function Auth() {
   }
 
   async function googleLogin() {
-    setError(''); setBusy(true)
-    try { await signInWithPopup(auth, googleProvider) }
+    setError(''); setResetSent(false); setBusy(true)
+    try {
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence)
+      await signInWithPopup(auth, googleProvider)
+    }
     catch (err) { setError(friendlyError(err.code, t)) }
+    finally { setBusy(false) }
+  }
+
+  async function handleForgotPassword() {
+    if (!email.trim()) { setError(t('auth.err.resetNoEmail')); return }
+    setError(''); setBusy(true)
+    try {
+      await sendPasswordResetEmail(auth, email.trim())
+      setResetSent(true)
+    } catch (err) { setError(friendlyError(err.code, t)) }
     finally { setBusy(false) }
   }
 
@@ -61,6 +86,32 @@ export default function Auth() {
             <label>{t('auth.password')}</label>
             <input className="input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={t('auth.passwordPlaceholder')} required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
           </div>
+
+          {mode === 'login' && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: -4 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--fg2)', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                />
+                {t('auth.rememberMe')}
+              </label>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={busy}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--accent)', padding: 0 }}
+              >
+                {t('auth.forgotPassword')}
+              </button>
+            </div>
+          )}
+
+          {resetSent && (
+            <p style={{ fontSize: 13, color: 'var(--accent)', margin: 0 }}>{t('auth.resetSent')}</p>
+          )}
           {error && <p className="auth-error">{error}</p>}
           <button className="btn btn-primary btn-full" type="submit" disabled={busy}>
             {busy ? '…' : mode === 'login' ? t('auth.login') : t('auth.createAccount')}
@@ -68,8 +119,8 @@ export default function Auth() {
         </form>
         <p className="auth-toggle">
           {mode === 'login'
-            ? <>{t('auth.noAccount')} <button onClick={() => setMode('register')}>{t('auth.signup')}</button></>
-            : <>{t('auth.haveAccount')} <button onClick={() => setMode('login')}>{t('auth.login')}</button></>}
+            ? <>{t('auth.noAccount')} <button onClick={() => { setMode('register'); setError(''); setResetSent(false) }}>{t('auth.signup')}</button></>
+            : <>{t('auth.haveAccount')} <button onClick={() => { setMode('login'); setError(''); setResetSent(false) }}>{t('auth.login')}</button></>}
         </p>
       </div>
     </div>

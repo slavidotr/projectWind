@@ -4,9 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <meta name="theme-color" content="#1e1e2e" />
-    <title>ProjectWind</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>Toji reach</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #1e1e2e }
+      #root-loader {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+      }
+      #root-loader-spin {
+        width: 32px;
+        height: 32px;
+        border: 3px solid #334155;
+        border-top-color: #60a5fa;
+        border-radius: 50%;
+        animation: rl-spin .8s linear infinite;
+      }
+      @keyframes rl-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="root-loader"><div id="root-loader-spin"></div></div>
+    </div>
   </body>
 </html>

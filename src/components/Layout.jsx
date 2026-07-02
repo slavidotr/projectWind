@@ -9,22 +9,36 @@ import Plan from './Plan'
 import LogSession from './LogSession'
 import History from './History'
 import ExerciseLibrary from './ExerciseLibrary'
+import Nutrition from './Nutrition'
+import Progress from './Progress'
+import Features from './Features'
 
 export default function Layout({ user }) {
   const { theme, toggle: toggleTheme } = useTheme()
   const { t, lang, setLang } = useLang()
-  const { workoutList, loading, createWorkout, saveWorkout, deleteWorkout, renameWorkout, setFavourite } = useWorkouts(user.uid)
+  const { workoutList, loading, createWorkout, saveWorkout, deleteWorkout, renameWorkout, setFavourite, duplicateWorkout } = useWorkouts(user.uid)
   const logsApi = useLogs(user.uid)
 
   const [currentWorkout, setCurrentWorkout] = useState(null)
   const [dirty,          setDirty]          = useState(false)
-  const [tab,            setTab]            = useState(0)
   const [drawerOpen,     setDrawerOpen]     = useState(false)
   const [newName,        setNewName]        = useState('')
   const [showNew,        setShowNew]        = useState(false)
-  const [activeSession,  setActiveSession]  = useState(null) // session being logged
 
-  const TABS = [t('tabs.plan'), t('tabs.log'), t('tabs.history'), t('tabs.exercises')]
+  // Persist active session across page reloads (Android kills PWA tabs when backgrounded)
+  const [activeSession, setActiveSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('wind_session') || 'null') } catch { return null }
+  })
+  const [tab, setTab] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('wind_session') || 'null') ? 1 : 0 } catch { return 0 }
+  })
+
+  useEffect(() => {
+    if (activeSession) localStorage.setItem('wind_session', JSON.stringify(activeSession))
+    else { localStorage.removeItem('wind_session'); localStorage.removeItem('wind_session_live') }
+  }, [activeSession])
+
+  const TABS = [t('tabs.plan'), t('tabs.log'), t('tabs.history'), t('tabs.exercises'), t('tabs.nutrition'), t('tabs.progress'), t('tabs.features')]
 
   // Auto-select favourite or first
   useEffect(() => {
@@ -86,18 +100,46 @@ export default function Layout({ user }) {
     if (currentWorkout?.id === id) updateWorkout({ isFavourite: !current })
   }
 
+  async function handleDuplicate(w) {
+    const copy = await duplicateWorkout(w.id, `${w.name} ${t('layout.copySuffix')}`)
+    if (copy) setTimeout(() => loadWorkout(copy), 300)
+  }
+
   function startSession() {
     if (!currentWorkout) return
+
+    // Build a map of exercise name → last session's per-set data (newest log first)
+    const sortedLogs = [...(logsApi.logList || [])].sort((a, b) =>
+      (b.date || '').localeCompare(a.date || ''))
+    const lastSetsBy = {}
+    for (const log of sortedLogs) {
+      for (const ex of (log.exercises || [])) {
+        const key = (ex.name || '').toLowerCase()
+        if (!lastSetsBy[key] && (ex.sets || []).length > 0) lastSetsBy[key] = ex.sets
+      }
+    }
+
     setActiveSession({
       workoutId:   currentWorkout.id,
       workoutName: currentWorkout.name,
       startMs:     Date.now(),
-      exercises:   currentWorkout.exercises.map(ex => ({
-        ...ex,
-        sets: Array.from({ length: ex.sets || 3 }, () => ({
-          reps: ex.reps || '', weight: ex.weight || '', done: false,
-        })),
-      })),
+      exercises:   currentWorkout.exercises.map(ex => {
+        const history = lastSetsBy[(ex.name || '').toLowerCase()] || []
+        return {
+          ...ex,
+          sets: Array.from({ length: ex.sets || 3 }, (_, i) => {
+            const prev = history[i]
+            const w    = prev?.weight
+            return {
+              reps:   ex.reps || '',
+              weight: (w != null && w !== '' && parseFloat(w) > 0)
+                ? String(w)
+                : (ex.weight || ''),
+              done: false,
+            }
+          }),
+        }
+      }),
       notes: '',
     })
     setTab(1)
@@ -117,7 +159,7 @@ export default function Layout({ user }) {
   const sidebar = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="sidebar-header">
-        <span>💪 Wind</span>
+        <span>Toji reach</span>
         <button className="btn-icon" title={t('layout.signOut')} onClick={() => signOut(auth)}>↩</button>
       </div>
       <div className="sidebar-workouts">
@@ -129,6 +171,7 @@ export default function Layout({ user }) {
             <span className="workout-actions" onClick={e => e.stopPropagation()}>
               <button title={t('layout.rename')} onClick={() => handleRename(w.id, w.name)}>✎</button>
               <button title={w.isFavourite ? t('layout.unmarkFav') : t('layout.markFav')} onClick={() => handleFav(w.id, w.isFavourite)}>{w.isFavourite ? '★' : '☆'}</button>
+              <button title={t('layout.duplicateWorkout')} onClick={() => handleDuplicate(w)}>⧉</button>
               <button title={t('layout.deleteWorkout')} onClick={() => handleDelete(w.id)}>✕</button>
             </span>
           </div>
@@ -163,7 +206,7 @@ export default function Layout({ user }) {
         <div className="header">
           <button className="btn-icon menu-btn" onClick={() => setDrawerOpen(true)}>☰</button>
           <div className={`header-title${dirty ? ' dirty' : ''}`}>
-            {currentWorkout ? currentWorkout.name : t('layout.noWorkoutSelected')}
+            {currentWorkout ? currentWorkout.name : TABS[tab]}
           </div>
           <div className="header-actions">
             {dirty && <button className="btn btn-primary btn-sm" onClick={handleSave}>{t('layout.save')}</button>}
@@ -172,26 +215,45 @@ export default function Layout({ user }) {
           </div>
         </div>
 
-        {currentWorkout ? (
-          <>
-            <div className="tabs">
-              {TABS.map((label, i) => (
-                <button key={label} className={`tab ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{label}</button>
-              ))}
-            </div>
-            <div className="tab-content">
-              {tab === 0 && <Plan workout={currentWorkout} onChange={exercises => updateWorkout({ exercises })} onStartSession={startSession} />}
-              {tab === 1 && <LogSession session={activeSession} onFinish={finishSession} onCancel={cancelSession} />}
-              {tab === 2 && <History logs={logsApi.logList} loading={logsApi.loading} onDelete={logsApi.deleteLog} />}
-              {tab === 3 && <ExerciseLibrary currentWorkout={currentWorkout} onAddExercise={ex => { updateWorkout({ exercises: [...(currentWorkout.exercises || []), ex] }); setTab(0) }} />}
-            </div>
-          </>
-        ) : (
-          <div className="empty">
-            <h3>{t('layout.noWorkoutSelected')}</h3>
-            <p>{t('layout.noWorkoutHint')}</p>
+        <>
+          <div className="tabs">
+            {TABS.map((label, i) => (
+              <button key={i} className={`tab ${tab === i ? 'active' : ''}`} onClick={() => setTab(i)}>{label}</button>
+            ))}
           </div>
-        )}
+          {activeSession && tab !== 1 && (
+            <button className="session-return-banner" onClick={() => setTab(1)}>
+              ⏱ {activeSession.workoutName} — {t('layout.returnToSession')}
+            </button>
+          )}
+          <div className="tab-content">
+            {tab === 0 && (currentWorkout
+              ? <Plan workout={currentWorkout} onChange={exercises => updateWorkout({ exercises })} onStartSession={startSession} allWorkouts={workoutList} />
+              : <div className="empty">
+                  <h3>{t('layout.noWorkoutSelected')}</h3>
+                  <p>{t('layout.noWorkoutHint')}</p>
+                  <button
+                    className="btn btn-primary mobile-only"
+                    style={{ marginTop: 8 }}
+                    onClick={() => setDrawerOpen(true)}
+                  >
+                    ☰ {t('layout.openWorkoutList')}
+                  </button>
+                </div>
+            )}
+            {/* Always mounted so rest timer and wake lock survive tab switches */}
+            <div style={{ display: tab === 1 ? 'flex' : 'none', flexDirection: 'column', height: '100%' }}>
+              <LogSession session={activeSession} onFinish={finishSession} onCancel={cancelSession} logs={logsApi.logList} allWorkouts={workoutList} />
+            </div>
+            {tab === 2 && <History logs={logsApi.logList} loading={logsApi.loading} onDelete={logsApi.deleteLog} onUpdate={logsApi.updateLog} />}
+            {tab === 3 && <ExerciseLibrary currentWorkout={currentWorkout} onAddExercise={ex => {
+              if (currentWorkout) { updateWorkout({ exercises: [...(currentWorkout.exercises || []), ex] }); setTab(0) }
+            }} />}
+            {tab === 4 && <Nutrition uid={user.uid} />}
+            {tab === 5 && <Progress uid={user.uid} logs={logsApi.logList} />}
+            {tab === 6 && <Features />}
+          </div>
+        </>
       </div>
     </div>
   )

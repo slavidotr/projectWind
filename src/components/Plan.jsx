@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
-import { newId } from '../utils'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { newId, MUSCLE_CATEGORIES } from '../utils'
 import { useLang } from '../i18n'
-import { MUSCLE_CATEGORIES } from '../utils'
+import PlateCalculator from './PlateCalculator'
 
-export default function Plan({ workout, onChange, onStartSession }) {
+export default function Plan({ workout, onChange, onStartSession, allWorkouts }) {
   const { t } = useLang()
   const exercises = workout.exercises || []
-  const [dialog, setDialog] = useState(null) // null | { mode: 'add'|'edit', item? }
+  const [dialog,     setDialog]     = useState(null) // null | { mode: 'add'|'edit', item? }
+  const [showPlates, setShowPlates] = useState(false)
 
   function saveExercise(data) {
     if (dialog.mode === 'add') {
@@ -38,6 +39,7 @@ export default function Plan({ workout, onChange, onStartSession }) {
         {exercises.length > 0 && (
           <button className="btn btn-ghost btn-sm" onClick={onStartSession}>{t('plan.startSession')} ▶</button>
         )}
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowPlates(true)}>{t('plan.plateCalc')}</button>
       </div>
 
       {exercises.length === 0 ? (
@@ -53,8 +55,9 @@ export default function Plan({ workout, onChange, onStartSession }) {
               <div className="exercise-card-body">
                 <div className="exercise-name">{ex.name}</div>
                 <div className="exercise-meta">
-                  {ex.sets} {t('plan.sets')} × {ex.reps} {t('plan.reps')}
+                  {ex.sets} {t('plan.sets')} × {ex.reps}{ex.targetType !== 'time' && ` ${t('plan.reps')}`}
                   {ex.weight ? ` · ${ex.weight} ${ex.unit || 'kg'}` : ''}
+                  {' · ⏱ '}{ex.restSecs || 150}s
                 </div>
                 {ex.category && <span className="exercise-category">{ex.category}</span>}
                 {ex.notes && <div style={{ fontSize: 12, color: 'var(--fg2)', marginTop: 4 }}>{ex.notes}</div>}
@@ -75,38 +78,111 @@ export default function Plan({ workout, onChange, onStartSession }) {
           item={dialog.item}
           onSave={saveExercise}
           onClose={() => setDialog(null)}
+          allWorkouts={allWorkouts}
+          currentWorkoutId={workout.id}
         />
       )}
+      {showPlates && <PlateCalculator onClose={() => setShowPlates(false)} />}
     </div>
   )
 }
 
-function ExerciseDialog({ item, onSave, onClose }) {
-  const { t } = useLang()
+function ExerciseDialog({ item, onSave, onClose, allWorkouts, currentWorkoutId }) {
+  const { t, lang } = useLang()
   const [form, setForm] = useState({
-    name:     item?.name     || '',
-    category: item?.category || '',
-    sets:     item?.sets     != null ? String(item.sets) : '3',
-    reps:     item?.reps     || '8-10',
-    weight:   item?.weight   != null ? String(item.weight) : '',
-    unit:     item?.unit     || 'kg',
-    notes:    item?.notes    || '',
+    name:       item?.name       || '',
+    category:   item?.category   || '',
+    sets:       item?.sets       != null ? String(item.sets)     : '3',
+    reps:       item?.reps       || '8-10',
+    targetType: item?.targetType || 'reps',
+    weight:     item?.weight     != null ? String(item.weight)  : '',
+    unit:       item?.unit       || 'kg',
+    restSecs:   item?.restSecs   != null ? String(item.restSecs): '150',
+    notes:      item?.notes      || '',
   })
-  const [error, setError] = useState('')
+  const [error,       setError]   = useState('')
+  const [suggestions, setSugs]    = useState([])
+  const [showDrop,    setShowDrop] = useState(false)
+  const debounceRef = useRef(null)
+  const nameWrapRef = useRef(null)
+
+  // Unique exercises from other workouts
+  const splitExercises = useMemo(() => {
+    const seen = new Set()
+    const result = []
+    for (const w of (allWorkouts || [])) {
+      if (w.id === currentWorkoutId) continue
+      for (const ex of (w.exercises || [])) {
+        if (!seen.has(ex.name)) {
+          seen.add(ex.name)
+          result.push({ name: ex.name, category: ex.category, fromWorkout: w.name })
+        }
+      }
+    }
+    return result
+  }, [allWorkouts, currentWorkoutId])
+
+  // Splits filtered by current name input
+  const filteredSplits = useMemo(() => {
+    const q = form.name.trim().toLowerCase()
+    if (q.length < 2) return []
+    return splitExercises.filter(ex => ex.name.toLowerCase().includes(q))
+  }, [splitExercises, form.name])
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })) }
+
+  function handleNameChange(val) {
+    set('name', val)
+    setError('')
+    setShowDrop(val.trim().length >= 2)
+    clearTimeout(debounceRef.current)
+    if (val.trim().length < 2) { setSugs([]); return }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const langName = lang === 'es' ? 'spanish' : 'english'
+        const res  = await fetch(`https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(val)}&language=${langName}&format=json`)
+        const data = await res.json()
+        setSugs((data.suggestions || []).slice(0, 8))
+      } catch {}
+    }, 300)
+  }
+
+  function pickSuggestion(sug) {
+    set('name', sug.value)
+    const cat = sug.data?.category
+    if (cat && MUSCLE_CATEGORIES.includes(cat)) set('category', cat)
+    setSugs([])
+    setShowDrop(false)
+  }
+
+  function pickFromSplit(ex) {
+    set('name', ex.name)
+    if (ex.category && MUSCLE_CATEGORIES.includes(ex.category)) set('category', ex.category)
+    setSugs([])
+    setShowDrop(false)
+  }
+
+  useEffect(() => {
+    function handler(e) {
+      if (nameWrapRef.current && !nameWrapRef.current.contains(e.target)) setShowDrop(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   function submit(e) {
     e.preventDefault()
     if (!form.name.trim()) { setError(t('exDialog.required')); return }
     onSave({
-      name:     form.name.trim(),
-      category: form.category,
-      sets:     Math.max(1, parseInt(form.sets) || 3),
-      reps:     form.reps,
-      weight:   parseFloat(form.weight) || 0,
-      unit:     form.unit,
-      notes:    form.notes,
+      name:       form.name.trim(),
+      category:   form.category,
+      sets:       Math.max(1, parseInt(form.sets)      || 3),
+      reps:       form.reps,
+      targetType: form.targetType,
+      weight:     parseFloat(form.weight)              || 0,
+      unit:       form.unit,
+      restSecs:   Math.max(10, parseInt(form.restSecs) || 150),
+      notes:      form.notes,
     })
   }
 
@@ -126,7 +202,30 @@ function ExerciseDialog({ item, onSave, onClose }) {
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="field">
             <label>{t('exDialog.name')}</label>
-            <input className={`input ${error ? 'input-error' : ''}`} value={form.name} onChange={e => { set('name', e.target.value); setError('') }} placeholder={t('exDialog.namePlaceholder')} autoFocus />
+            <div ref={nameWrapRef} style={{ position: 'relative' }}>
+              <input className={`input ${error ? 'input-error' : ''}`} value={form.name} onChange={e => handleNameChange(e.target.value)} placeholder={t('exDialog.namePlaceholder')} autoFocus />
+              {showDrop && (suggestions.length > 0 || filteredSplits.length > 0) && (
+                <div className="autocomplete-dropdown">
+                  {suggestions.map(sug => (
+                    <button key={sug.data?.id || sug.value} type="button" className="autocomplete-item" onMouseDown={() => pickSuggestion(sug)}>
+                      <span>{sug.value}</span>
+                      {sug.data?.category && <span className="autocomplete-cat">{sug.data.category}</span>}
+                    </button>
+                  ))}
+                  {filteredSplits.length > 0 && (
+                    <>
+                      {suggestions.length > 0 && <div className="autocomplete-section">{t('exDialog.fromSplits')}</div>}
+                      {filteredSplits.map((ex, i) => (
+                        <button key={`s${i}`} type="button" className="autocomplete-item" onMouseDown={() => pickFromSplit(ex)}>
+                          <span>{ex.name}</span>
+                          <span className="autocomplete-cat">{ex.fromWorkout}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
             {error && <span style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</span>}
           </div>
           <div className="field">
@@ -142,8 +241,27 @@ function ExerciseDialog({ item, onSave, onClose }) {
               <input className="input" type="number" min="1" value={form.sets} onChange={e => set('sets', e.target.value)} />
             </div>
             <div className="field" style={{ flex: 1 }}>
-              <label>{t('exDialog.reps')}</label>
-              <input className="input" value={form.reps} onChange={e => set('reps', e.target.value)} placeholder={t('exDialog.repsPlaceholder')} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label style={{ margin: 0 }}>{form.targetType === 'time' ? t('exDialog.timeTarget') : t('exDialog.repsTarget')}</label>
+                <button
+                  type="button"
+                  className="type-toggle"
+                  onClick={() => set('targetType', form.targetType === 'reps' ? 'time' : 'reps')}
+                >
+                  {form.targetType === 'reps' ? t('exDialog.timeMode') : t('exDialog.repsMode')}
+                </button>
+              </div>
+              <input
+                className="input"
+                value={form.reps}
+                onChange={e => set('reps', e.target.value)}
+                placeholder={form.targetType === 'time' ? t('exDialog.timePlaceholder') : t('exDialog.repsPlaceholder')}
+                inputMode={form.targetType === 'time' ? 'text' : 'text'}
+              />
+            </div>
+            <div className="field" style={{ width: 80 }}>
+              <label>{t('exDialog.restSecs')}</label>
+              <input className="input" type="number" min="10" value={form.restSecs} onChange={e => set('restSecs', e.target.value)} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>

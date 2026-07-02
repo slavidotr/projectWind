@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "webpack serve --mode development",
-    "build": "webpack --mode production"
+    "build": "webpack --mode production && node -e \"const fs=require('fs'),p=require('path'); fs.readdirSync('public').forEach(f=>fs.copyFileSync(p.join('public',f),p.join('dist',f))); fs.copyFileSync('sw.js','dist/sw.js');\""
   },
   "dependencies": {
     "firebase": "^10.12.0",

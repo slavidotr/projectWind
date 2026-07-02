@@ -25,9 +25,13 @@ export function useLogs(uid) {
     return id
   }
 
+  async function updateLog(id, patch) {
+    await setDoc(doc(db, 'users', uid, 'logs', id), patch, { merge: true })
+  }
+
   async function deleteLog(id) {
     await deleteDoc(doc(db, 'users', uid, 'logs', id))
   }
 
-  return { logList, loading, saveLog, deleteLog }
+  return { logList, loading, saveLog, updateLog, deleteLog }
 }

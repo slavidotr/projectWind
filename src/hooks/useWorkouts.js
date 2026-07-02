@@ -42,5 +42,16 @@ export function useWorkouts(uid) {
     await setDoc(doc(db, 'users', uid, 'workouts', id), { isFavourite: val }, { merge: true })
   }
 
-  return { workoutList, loading, createWorkout, saveWorkout, deleteWorkout, renameWorkout, setFavourite }
+  async function duplicateWorkout(id, newName) {
+    const source = workoutList.find(w => w.id === id)
+    if (!source) return null
+    const newWorkoutId = newId()
+    const exercises = (source.exercises || []).map(ex => ({ ...ex, id: newId() }))
+    await setDoc(doc(db, 'users', uid, 'workouts', newWorkoutId), {
+      name: newName, exercises, isFavourite: false, createdAt: serverTimestamp(),
+    })
+    return { id: newWorkoutId, name: newName, exercises, isFavourite: false }
+  }
+
+  return { workoutList, loading, createWorkout, saveWorkout, deleteWorkout, renameWorkout, setFavourite, duplicateWorkout }
 }

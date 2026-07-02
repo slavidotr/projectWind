@@ -21,14 +21,23 @@ export function fmtDuration(minutes) {
 }
 
 export const MUSCLE_CATEGORIES = [
-  'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps',
-  'Legs', 'Core', 'Cardio', 'Full Body', 'Other',
+  'Chest', 'Back', 'Shoulders', 'Arms', 'Abs',
+  'Legs', 'Glutes', 'Calves', 'Core', 'Cardio', 'Calisthenics', 'Full Body', 'Other',
 ]
 
 export const WGER_CATEGORIES = {
-  8: 'Arms', 10: 'Back', 11: 'Calves', 12: 'Chest',
-  14: 'Legs', 15: 'Shoulders', 9: 'Abs',
+  8:  'Arms',
+  9:  'Abs',
+  10: 'Back',
+  11: 'Calves',
+  12: 'Chest',
+  13: 'Glutes',
+  14: 'Legs',
+  15: 'Shoulders',
 }
+
+// wger language IDs
+export const WGER_LANG = { en: 2, es: 6, de: 4, fr: 10 }
 
 export function totalVolume(exercises) {
   return exercises.reduce((sum, ex) => {

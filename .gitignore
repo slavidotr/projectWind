@@ -3,3 +3,6 @@ node_modules
 .expo-shared
 web-build
 *.log
+.env
+dist
+.firebase
