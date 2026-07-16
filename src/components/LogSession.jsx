@@ -142,6 +142,21 @@ export default function LogSession({ session, onFinish, onCancel, logs = [], all
     return map
   }, [logs])
 
+  // Raw (unfiltered) last-session sets per exercise, by set index — used to prefill
+  // weight when an exercise is added mid-session, same lookup startSession() uses
+  // for exercises that are already in the plan.
+  const lastRawSetsMap = useMemo(() => {
+    const sortedLogs = [...logs].sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    const map = {}
+    for (const log of sortedLogs) {
+      for (const ex of log.exercises || []) {
+        const name = (ex.name || '').toLowerCase()
+        if (!map[name] && (ex.sets || []).length > 0) map[name] = ex.sets
+      }
+    }
+    return map
+  }, [logs])
+
   // Persist live exercise state so it survives Android killing the PWA tab.
   // Intentionally omits session?.workoutId from deps: we only want this to fire when
   // exercises/notes actually change, not when the session first mounts (exercises would
@@ -358,11 +373,18 @@ export default function LogSession({ session, onFinish, onCancel, logs = [], all
   }
 
   function addExerciseMidSession(exData) {
+    const history = lastRawSetsMap[(exData.name || '').toLowerCase()] || []
     const newEx = {
       ...exData,
-      sets: Array.from({ length: exData.sets || 3 }, () => ({
-        reps: exData.reps || '', weight: '', done: false,
-      })),
+      sets: Array.from({ length: exData.sets || 3 }, (_, i) => {
+        const prev = history[i]
+        const w    = prev?.weight
+        return {
+          reps:   exData.reps || '',
+          weight: (w != null && w !== '' && parseFloat(w) > 0) ? String(w) : '',
+          done: false,
+        }
+      }),
     }
     setExercises(prev => [...prev, newEx])
     setShowAddEx(false)

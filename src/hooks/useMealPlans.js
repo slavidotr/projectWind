@@ -35,9 +35,29 @@ export function useMealPlans(uid) {
     await setDoc(doc(db, 'users', uid, 'mealplans', planId), { name }, { merge: true })
   }
 
+  async function setPlanCalories(planId, targetCalories) {
+    await setDoc(doc(db, 'users', uid, 'mealplans', planId), { targetCalories }, { merge: true })
+  }
+
+  async function duplicatePlan(plan) {
+    const id = newId()
+    await setDoc(doc(db, 'users', uid, 'mealplans', id), {
+      id,
+      name: `${plan.name} (copy)`,
+      foods: (plan.foods || []).map(f => ({
+        ...f,
+        id: newId(),
+        ingredients: (f.ingredients || []).map(i => ({ ...i, id: newId() })),
+      })),
+      targetCalories: plan.targetCalories ?? null,
+      createdAt: serverTimestamp(),
+    })
+    return id
+  }
+
   async function deletePlan(planId) {
     await deleteDoc(doc(db, 'users', uid, 'mealplans', planId))
   }
 
-  return { plans, loading, createPlan, savePlanFoods, renamePlan, deletePlan }
+  return { plans, loading, createPlan, savePlanFoods, renamePlan, setPlanCalories, duplicatePlan, deletePlan }
 }

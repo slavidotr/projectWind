@@ -217,6 +217,10 @@ const en = {
   'nutrition.mealplans.rename': 'Rename',
   'nutrition.mealplans.delete': 'Delete',
   'nutrition.mealplans.confirmDelete': 'Delete this diet?',
+  'nutrition.mealplans.duplicate': 'Duplicate',
+  'nutrition.mealplans.setCalories': 'Set target calories',
+  'nutrition.mealplans.moveUp': 'Move up',
+  'nutrition.mealplans.moveDown': 'Move down',
 
   'nutrition.addMeal': '+ Add meal',
   'nutrition.addMeal.title': 'Add Meal',
@@ -490,6 +494,10 @@ const es = {
   'nutrition.mealplans.rename': 'Renombrar',
   'nutrition.mealplans.delete': 'Eliminar',
   'nutrition.mealplans.confirmDelete': '¿Eliminar esta dieta?',
+  'nutrition.mealplans.duplicate': 'Duplicar',
+  'nutrition.mealplans.setCalories': 'Definir calorías objetivo',
+  'nutrition.mealplans.moveUp': 'Subir',
+  'nutrition.mealplans.moveDown': 'Bajar',
 
   'nutrition.addMeal': '+ Añadir comida',
   'nutrition.addMeal.title': 'Añadir comida',

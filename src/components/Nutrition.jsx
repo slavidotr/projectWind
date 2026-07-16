@@ -108,7 +108,7 @@ const EMPTY_LIMITS = () => ({ protein: { min:'', max:'' }, carbs: { min:'', max:
 
 export default function Nutrition({ uid }) {
   const { t } = useLang()
-  const { plans, createPlan, savePlanFoods, renamePlan, deletePlan } = useMealPlans(uid)
+  const { plans, createPlan, savePlanFoods, renamePlan, setPlanCalories, duplicatePlan, deletePlan } = useMealPlans(uid)
 
   const [tdeeOpen,    setTdeeOpen]    = useState(() => !loadLocal('pw-tdee', null)?.weight)
   const [limitsOpen,  setLimitsOpen]  = useState(false)
@@ -162,6 +162,28 @@ export default function Nutrition({ uid }) {
   async function handleDeleteMeal(planId, mealId) {
     const plan = plans.find(p => p.id === planId)
     await savePlanFoods(planId, (plan?.foods || []).filter(f => f.id !== mealId))
+  }
+
+  async function handleMoveMeal(planId, mealId, dir) {
+    const plan  = plans.find(p => p.id === planId)
+    const foods = [...(plan?.foods || [])]
+    const idx   = foods.findIndex(f => f.id === mealId)
+    const swapIdx = idx + dir
+    if (idx < 0 || swapIdx < 0 || swapIdx >= foods.length) return
+    ;[foods[idx], foods[swapIdx]] = [foods[swapIdx], foods[idx]]
+    await savePlanFoods(planId, foods)
+  }
+
+  async function handleSetPlanCalories(planId, current) {
+    const input = window.prompt(t('nutrition.mealplans.setCalories'), current ? String(current) : '')
+    if (input === null) return
+    const val = parseFloat(input)
+    await setPlanCalories(planId, val > 0 ? val : null)
+  }
+
+  async function handleDuplicatePlan(planId) {
+    const plan = plans.find(p => p.id === planId)
+    if (plan) await duplicatePlan(plan)
   }
 
   return (
@@ -283,16 +305,27 @@ export default function Nutrition({ uid }) {
           )}
 
           {plans.map(plan => {
-            const isOpen = openPlans[plan.id]
-            const foods  = plan.foods || []
-            const total  = sumMacros(foods.flatMap(f => f.ingredients || []))
+            const isOpen     = openPlans[plan.id]
+            const foods       = plan.foods || []
+            const total       = sumMacros(foods.flatMap(f => f.ingredients || []))
+            const planTarget  = plan.targetCalories || target
             return (
               <div key={plan.id} className="mealplan-card">
                 <div className="mealplan-card-header" onClick={() => setOpenPlans(o => ({ ...o, [plan.id]: !o[plan.id] }))}>
                   <span className="mealplan-card-chevron">{isOpen ? '▾' : '▸'}</span>
                   <span className="mealplan-card-name">{plan.name}</span>
-                  {total.calories > 0 && <span className="mealplan-card-kcal">{Math.round(total.calories)} kcal</span>}
+                  <span
+                    className="mealplan-card-kcal"
+                    title={t('nutrition.mealplans.setCalories')}
+                    onClick={e => { e.stopPropagation(); handleSetPlanCalories(plan.id, plan.targetCalories) }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {total.calories > 0 || plan.targetCalories
+                      ? `${Math.round(total.calories)}${plan.targetCalories ? ` / ${plan.targetCalories}` : ''} kcal`
+                      : t('nutrition.mealplans.setCalories')}
+                  </span>
                   <div className="mealplan-card-actions" onClick={e => e.stopPropagation()}>
+                    <button className="btn-icon" title={t('nutrition.mealplans.duplicate')} onClick={() => handleDuplicatePlan(plan.id)}>⧉</button>
                     <button className="btn-icon" title={t('nutrition.mealplans.rename')} onClick={() => {
                       const n = window.prompt(t('nutrition.mealplans.rename'), plan.name)
                       if (n && n.trim()) renamePlan(plan.id, n.trim())
@@ -306,9 +339,9 @@ export default function Nutrition({ uid }) {
                 {isOpen && (
                   <div className="mealplan-card-body">
                     {/* Progress vs. goal + limits */}
-                    {(target || Object.values(limits).some(l => l.min || l.max)) && (
+                    {(planTarget || Object.values(limits).some(l => l.min || l.max)) && (
                       <div className="progress-section" style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                        <MacroBar label={t('nutrition.calories')} consumed={total.calories} target={target} unit=" kcal" color="var(--accent)" />
+                        <MacroBar label={t('nutrition.calories')} consumed={total.calories} target={planTarget} unit=" kcal" color="var(--accent)" />
                         <MacroBar label={t('nutrition.protein')} consumed={total.protein} target={targetMacros?.protein} min={limits.protein?.min} max={limits.protein?.max} unit="g" color="#f97316" />
                         <MacroBar label={t('nutrition.carbs')}   consumed={total.carbs}   target={targetMacros?.carbs}   min={limits.carbs?.min}   max={limits.carbs?.max}   unit="g" color="#eab308" />
                         <MacroBar label={t('nutrition.fat')}     consumed={total.fat}     target={targetMacros?.fat}     min={limits.fat?.min}     max={limits.fat?.max}     unit="g" color="#8b5cf6" />
@@ -325,7 +358,7 @@ export default function Nutrition({ uid }) {
                       </div>
                       {foods.length === 0 ? (
                         <p style={{ color: 'var(--fg2)', fontSize: 12, padding: '4px 0 8px' }}>{t('nutrition.emptyMeal')}</p>
-                      ) : foods.map(food => {
+                      ) : foods.map((food, idx) => {
                         const mt = mealTotal(food)
                         return (
                           <div key={food.id} className="food-item">
@@ -341,6 +374,20 @@ export default function Nutrition({ uid }) {
                               </span>
                             </div>
                             <div className="food-item-actions">
+                              <button
+                                className="btn-icon"
+                                title={t('nutrition.mealplans.moveUp')}
+                                disabled={idx === 0}
+                                style={{ opacity: idx === 0 ? 0.35 : 1, cursor: idx === 0 ? 'default' : 'pointer' }}
+                                onClick={() => handleMoveMeal(plan.id, food.id, -1)}
+                              >↑</button>
+                              <button
+                                className="btn-icon"
+                                title={t('nutrition.mealplans.moveDown')}
+                                disabled={idx === foods.length - 1}
+                                style={{ opacity: idx === foods.length - 1 ? 0.35 : 1, cursor: idx === foods.length - 1 ? 'default' : 'pointer' }}
+                                onClick={() => handleMoveMeal(plan.id, food.id, 1)}
+                              >↓</button>
                               <button className="btn-icon" onClick={() => setDialog({ planId: plan.id, item: food })}>✎</button>
                               <button className="btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDeleteMeal(plan.id, food.id)}>✕</button>
                             </div>
